@@ -2,33 +2,66 @@
 
 #####################################################################################################
  
-BackUp()
+#El problema con esta version de la funcion backup, es que hace backups cuando se envia count, 
+#play o clear, la dejamos por cualquier problema que puedan surgir con la nueva version
+backup2() 
 {
-    echo "Realizando Backup..."
-    DIA=`date +"%d-%m-%Y"`
-    HORA=`date +"%H:%M:%S"`
-    cp -a "$path_origen" $path_destino"/Backup "$DIA" "$HORA
-    echo "Backup "$DIA" "$HORA" Realizado"
+	while true
+	do
+		case "$unidad" in
+			m)
+				tiempo=`expr 60 \* $tiempo` 
+				sleep $tiempo & 
+				wait $!
+				play				 
+			;;
+			s)
+				sleep $tiempo &
+				wait $!
+				play			
+			;;
+		esac
+	done
 }
 
+backup() #Nueva version y usada actualmente
+{
+	contador=0
+
+	if test $unidad = "m";then
+		tiempo=`expr 60 \* $tiempo` 	
+	fi
+
+	while true
+	do
+		iteracion
+		if [ $contador -eq $tiempo ]
+		then
+			contador=0
+			play 1 #pasamos un parametro para distinguir del backup instantaneo
+		fi
+		contador=`expr $contador + 1`
+	done
+}
 #####################################################################################################
  
 play()
 {
-	echo "haciendo backup instantaneo de $path_origen a $path_destino"
-	BackUp
+	DIA=`date +"%d-%m-%Y"`
+    HORA=`date +"%H:%M:%S"`
+    cp -a "$path_origen" $path_destino"/Backup_"$DIA"_"$HORA
+    if test -z $1;then
+    	echo "Backup instantaneo realizado."
+    fi
 }
 
 #####################################################################################################
  
 count()
 {
-	read path_origen < /tmp/demfifo
-	#Lista los archivos y los pasa a la tuberia al comando wc para contarlos
-	#cuento todos los backups en la carpeta e informo el numero por pantalla	
-
-	C=`ls "$path_destino"|grep "Backup "|wc -l` #cuento todos los backups en la carpeta e informo el numero por pantalla
-    	echo $C > /tmp/demfifo
+	 #cuento todos los backups en la carpeta e informo el numero por pantalla
+	C=`ls "$path_destino" | grep "Backup" | wc -l`
+    echo "Actualmento existen " $C "backups."
 	
 }
 
@@ -36,101 +69,66 @@ count()
  
 func_clear()
 {
-	echo "Iniciando la funcion clear."
-	echo "Borrando archivos de $path_destino"
-	for a in `ls $path_destino| grep -v "Backup "`; do rm -fr $a; done
+	cantidadAMantener=`cat "/tmp/clearDemonio"`
+	cantidadBackups=`ls "$path_destino" | grep "Backup" | wc -l`
+	contador=0
+	limite=`expr $cantidadBackups - $cantidadAMantener`
+
+	if test $limite -le 0 ;then
+		echo "La cantidad de backups actual es menor a la cantidad que desea mantener."
+	else
+		archivosABorrar=`ls $path_destino | grep "Backup"`
+		for a in $archivosABorrar; 
+		do 
+			if test $contador -lt $limite ; then
+				echo "Borrando: $path_destino"/"$a"
+				rm -r "$path_destino"/"$a"
+				contador=`expr $contador + 1`
+			fi
+		done
+	fi
+	rm "/tmp/clearDemonio"
 }
 
-#####################################################################################################
- 
-iteracion()
-{
-	sleep $interval &
-	wait $!
-}
 
 #####################################################################################################
  
 salir()
 {
-	if [ -f /tmp/demonio.pid ]
-	then
-		# El fichero PID existe
-		if [ `cat /tmp/demonio.pid` -eq $$ ]
-		then
-			# El PID nos corresponde
-			echo "borrando el fichero PID, porque es de esta ejecucion."
-			rm -f /tmp/demonio.pid
-		fi
-	fi
-	if [ -f /tmp/demfifo ]
-	then
-		rm /tmp/demfifo
-	fi
+	echo "Demonio Finalizado."
 	exit 0
 }
+
+####################################################################################################
+
+iniciar_demonio()
+{
+	TEMP='/tmp/demonio.pid'
+	echo $$ > $TEMP
+	backup
+}
+
+####################################################################################################
+
+iteracion()
+{
+	sleep 1 & #iteracion de 1 segundo
+	wait $!
+}
+
+####################################################################################################
 
 trap salir SIGTERM SIGKILL
 trap count SIGUSR1
 trap play SIGUSR2
-trap func_clear SIGALRM
-
-echo "Iniciando demonio..."
-
-### VERIFICO SI EL DEMONIO YA ESTA EN EJECUCION:
-if [ ! -f "/tmp/demonio.pid" ]
-then
-	# no existe el fichero PID
-	echo $$ > "/tmp/demonio.pid"
-else
-	# El fichero PID existe
-	if [ `cat /tmp/demonio.pid` -ne $$ ]
-	then
-		echo "Imposible ejecutar, este binario ya se está ejecutando."
-		salir
-	fi
-fi
+trap func_clear SIGHUP
 
 
-###
 #recibo los parametros
-read path_origen < "/tmp/datostemporales.txt"
-path_destino=$(head -2 "/tmp/datostemporales.txt" | tail -1)
-#intervalo de ejecucion de los backup
-intervalo=$(head -3 "/tmp/datostemporales.txt" | tail -1)
+path_origen=$1
+path_destino=$2
+tiempo=$3
+unidad=$4
 
-echo "path_origen: $path_origen"
-echo "path_destino: $path_destino"
-echo "intervalo: $intervalo"
-
-
-
-
-#intervalo que uso con los sleeps
-interval=1
-
-
-#si existe borro el archivo que uso como canal
-if [ -f /tmp/datostemporales.txt ]
-then
-	rm "/tmp/datostemporales.txt"
-fi
-
-
-contador=0
-echo "arrancando el demonio con PID=$$"
-while true
-do
-	# hacer lo que sea
-	echo "iteracion"
-	# esperar
-	echo "esperando $interval segundos"
-	iteracion
-	if [ $contador -eq $intervalo ]
-	then
-		$contador=0
-		play
-	fi
-	contador=$((contador+1))
-done
-##fin de demonio
+#Inicio el demonio
+iniciar_demonio

@@ -9,22 +9,22 @@ ingreso_dia()
    echo La fecha ingresada ya existe en el archivo
    exit
   else
-  #cuentos las lineas del archivo
-  cantLineas=`awk 'END{print NR}' $archivo`
-  #veo si existe una fecha sin finalizacion
-  cantSeparadores=`awk -v cant=$cantLineas -F '|' 'NR==cant{print NF}' $archivo`
- 
-  if [ "$cantSeparadores" = 2 ]; then
-	    reg=`tail -1 $archivo`
-	    echo Hay registro incompleto.Es el siguiente $reg
-	    exit
-	fi
-	
-	#si existiera un reporte mensual previo lo borro
-	if [ "$cantSeparadores" = 5 ]; then
-	    sed -i "$ d" $archivo
-	fi
-	echo "$fecha|">>$archivo #grabo en la ultima linea 
+      #cuentos las lineas del archivo
+      cantLineas=`awk 'END{print NR}' $archivo`
+      #veo si existe una fecha sin finalizacion
+      cantSeparadores=`awk -v cant=$cantLineas -F '|' 'NR==cant{print NF}' $archivo`
+     
+      if [ "$cantSeparadores" = 2 ]; then
+    	    reg=`tail -1 $archivo`
+    	    echo Hay registro incompleto.Es el siguiente $reg
+    	    exit
+    	fi
+    	
+    	#si existiera un reporte mensual previo lo borro
+      sed -i "/|[0-9.]*$/d" $archivo
+
+      #grabo en la ultima linea 
+    	echo "$fecha|">>$archivo 
   fi
  }
 
@@ -57,20 +57,29 @@ reporte_mensual(){
    if [ -n $file ]; then
     #echo $file
     if [ -f $file ]; then
-	anio="$( cut -d '.' -f 2 <<< "$file" )"
-    mes="$( cut -d '.' -f 1 <<< "$file" )"	 
-     if [ "$2" = "$anio" ] && [ "$mes" = "$3" ] ; then
-     #if (( $anio == $2 && $mes == $3 )) ; then
-	 	  echo `tail -1 $file`
-	 	  exit
-     fi    
+	     mes="$( cut -d '.' -f 2 <<< "$file" )"
+       anio="$( cut -d '.' -f 1 <<< "$file" )"	
+       if [ $2 = "$anio"  -a  $mes = "$3" ] ; then
+          reg=`tail -1 $file`
+          echo $reg | awk -v mes=$mes -f reporteMensual.awk
+    	 	  exit
+       fi    
     fi
   fi
  done
 
 }
 reporte_anual(){
- 
+ echo
+ echo "         REPORTE ANUAL"
+ echo
+
+ diasTrabajados=0
+ horasReales=0
+ diferencia=0
+
+ temp=$(mktemp)
+
  dir=$(dir -1)
  for file in $dir;
   do
@@ -78,13 +87,17 @@ reporte_anual(){
    if [ -n $file ]; then
     #Si es un archivo
     if [ -f $file ]; then
-	anio="$( cut -d '.' -f 1 <<< "$file" )"
+	    anio="$( cut -d '.' -f 1 <<< "$file" )"
+      mes="$( cut -d '.' -f 2 <<< "$file" )"
     	if [ "$3" = "$anio" ]; then
-	 	  echo `tail -1 $file`
-        fi    
+	 	     reg=`tail -1 $file`
+         echo $reg >> $temp
+      fi    
     fi
    fi
  done
+ cat $temp | awk -f "reporteAnual.awk"
+ rm $temp
 }
 
 scriptErrorParametro(){
@@ -152,22 +165,18 @@ fi
 
 if [ "$1" = "-r" -o "$1" = "-y" ]; then
   if [ "$1" = "-y" ]; then 
-	 if [[ -z $2 ]]; then
-    	anio=`date +%Y`
+	   if [[ -z $2 ]]; then
+    	  anio=`date +%Y`
      else
-	  	anio=$2
-	 fi
-	 reporte_anual $DIR $1 $anio
-	 exit
+	  	  anio=$2
+	   fi
+	   reporte_anual $DIR $1 $anio
+	   exit
   else
-  	if [[ -z $2 ]]; then
-  		scriptErrorParametro
-  	else
   		anio="$( cut -d '/' -f 2 <<< "$2" )"
      	mes="$( cut -d '/' -f 1 <<< "$2" )"
   		reporte_mensual $DIR $anio $mes
   		exit
-  	fi
   fi
 else #parametro invalido
 	scriptErrorParametro
